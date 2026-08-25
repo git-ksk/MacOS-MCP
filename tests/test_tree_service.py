@@ -297,6 +297,78 @@ class TestTreeGetNodes:
 
 
 @pytest.mark.unit
+class TestTreeModalSheet:
+    """A sheet blocks its application, so only the sheet is worth scanning."""
+
+    def _mock_app(self, mocker, with_sheet: bool):
+        """An app whose main window optionally has a sheet on it."""
+        sheet = MagicMock()
+        sheet.Element = MagicMock()
+        sheet.BoundingRectangle = MagicMock()
+        toolbar = MagicMock()
+        toolbar.Element = MagicMock()
+
+        roles = {id(toolbar.Element): "AXToolbar"}
+        children = [toolbar]
+        if with_sheet:
+            roles[id(sheet.Element)] = "AXSheet"
+            children.append(sheet)
+
+        main_window = MagicMock()
+        main_window.GetChildren.return_value = children
+        main_window.BoundingRectangle = MagicMock()
+
+        app = MagicMock()
+        app.Name = "Test App"
+        app.Element = MagicMock()
+        app.MenuBar = MagicMock()
+        app.ExtrasMenuBar = MagicMock()
+        app.MainWindow = main_window
+        app.Windows = []
+
+        mocker.patch(
+            "macos_mcp.tree.service.ax.GetAttribute",
+            side_effect=lambda element, attribute: roles.get(id(element)),
+        )
+        mocker.patch(
+            "macos_mcp.tree.service.ax.GetRunningApplicationByBundleId",
+            return_value=app,
+        )
+        mocker.patch("macos_mcp.tree.service.ax.SetMessagingTimeout")
+        mocker.patch("macos_mcp.tree.service.BoundingBox")
+        return app, main_window, sheet
+
+    def test_modal_sheet_found(self, mocker):
+        """_modal_sheet returns the AXSheet child of a window."""
+        _, main_window, sheet = self._mock_app(mocker, with_sheet=True)
+        assert Tree._modal_sheet(main_window) is sheet
+
+    def test_modal_sheet_absent(self, mocker):
+        """_modal_sheet returns None when no sheet is up."""
+        _, main_window, _ = self._mock_app(mocker, with_sheet=False)
+        assert Tree._modal_sheet(main_window) is None
+
+    def test_get_nodes_scans_only_the_sheet(self, mocker):
+        """With a sheet up, the window behind it and the menus are skipped."""
+        _, main_window, sheet = self._mock_app(mocker, with_sheet=True)
+        mock_traversal = mocker.patch.object(Tree, "tree_traversal")
+
+        Tree().get_nodes("com.test.app", is_browser=False)
+
+        roots = [c[0][0] for c in mock_traversal.call_args_list]
+        assert roots == [sheet]
+
+    def test_get_nodes_without_sheet_scans_menus_and_window(self, mocker):
+        """Without a sheet the menu bar and main window are scanned as before."""
+        app, main_window, _ = self._mock_app(mocker, with_sheet=False)
+        mock_traversal = mocker.patch.object(Tree, "tree_traversal")
+
+        Tree().get_nodes("com.test.app", is_browser=False)
+
+        roots = [c[0][0] for c in mock_traversal.call_args_list]
+        assert roots == [app.MenuBar, app.ExtrasMenuBar, main_window]
+
+@pytest.mark.unit
 class TestTreeIntegration:
     """Integration tests for Tree service."""
 

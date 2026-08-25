@@ -257,6 +257,20 @@ class Tree:
         with objc.autorelease_pool():
             return self.get_nodes(bundle_id, is_browser, desktop_only, extras_only)
 
+    @staticmethod
+    def _modal_sheet(window: ax.Control) -> ax.Control | None:
+        """The sheet currently blocking a window, if there is one.
+
+        AXModal is not a usable signal here: Chrome leaves it False on the
+        browser window while its file upload picker is open, and the picker is
+        plainly modal. The AXSheet child is what both Chrome and native save
+        panels have in common.
+        """
+        for child in window.GetChildren():
+            if ax.GetAttribute(child.Element, ax.Attribute.Role) == "AXSheet":
+                return child
+        return None
+
     def get_nodes(
         self,
         bundle_id: str,
@@ -304,9 +318,17 @@ class Tree:
                 )
             return interactive_nodes, scrollable_nodes, dom_informative_nodes
 
+        main_window = app.MainWindow
+        modal_sheet = self._modal_sheet(main_window) if main_window else None
+
         menubar = None
         extras_menubar = None
-        if not desktop_only:
+        # A sheet blocks the rest of its application: the window behind it and
+        # the app's own menus are inert until it is dismissed. They stay in the
+        # accessibility tree reporting themselves as enabled, so scanning them
+        # yields nodes whose coordinates do nothing when clicked -- a Chrome
+        # upload picker leaves 38 of 80 nodes in that state.
+        if not desktop_only and modal_sheet is None:
             if menubar := app.MenuBar:
                 self.tree_traversal(
                     menubar,
@@ -325,7 +347,22 @@ class Tree:
                     [],
                     is_browser=is_browser,
                 )
-        if main_window := app.MainWindow:
+        if modal_sheet is not None:
+            sheet_rect = modal_sheet.BoundingRectangle
+            self.tree_traversal(
+                modal_sheet,
+                app_name,
+                interactive_nodes,
+                scrollable_nodes,
+                dom_informative_nodes,
+                main_window_bounding_box=(
+                    BoundingBox.from_bounding_rectangle(sheet_rect)
+                    if sheet_rect
+                    else None
+                ),
+                is_browser=is_browser,
+            )
+        elif main_window:
             if main_window_rect := main_window.BoundingRectangle:
                 main_window_bounding_box = BoundingBox.from_bounding_rectangle(
                     main_window_rect
