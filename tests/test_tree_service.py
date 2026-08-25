@@ -36,11 +36,10 @@ class TestTreeMenuBarExtras:
         app.bundleIdentifier.return_value = "com.example.menu"
         app.processIdentifier.return_value = 123
 
-        workspace = MagicMock()
-        workspace.runningApplications.return_value = [app]
-        nsworkspace = MagicMock()
-        nsworkspace.sharedWorkspace.return_value = workspace
-        mocker.patch("macos_mcp.tree.service.NSWorkspace", nsworkspace)
+        mocker.patch(
+            "macos_mcp.tree.service.ax.GetRunningApplicationsRaw",
+            return_value=[app],
+        )
 
         extras = MagicMock()
         extras.GetChildren.return_value = [object()]

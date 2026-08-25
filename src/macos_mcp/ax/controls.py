@@ -1339,16 +1339,22 @@ class ApplicationControl(Control):
         self._ns_running_app = None  # Lazily resolved
 
     def _get_ns_running_app(self):
-        """Lazily resolve the NSRunningApplication for this application's PID."""
+        """Lazily resolve the NSRunningApplication for this application's PID.
+
+        Resolved straight from the PID rather than by scanning
+        NSWorkspace.runningApplications(), whose list goes stale without a run
+        loop -- an application launched after the first read was missing from
+        it, so BundleIdentifier came back None and the caller treated a
+        perfectly ordinary app as unidentifiable.
+        """
         if self._ns_running_app is None:
             pid = GetElementPid(self.Element)
             if pid is not None:
-                from Cocoa import NSWorkspace
+                from Cocoa import NSRunningApplication
 
-                for app in NSWorkspace.sharedWorkspace().runningApplications():
-                    if app.processIdentifier() == pid:
-                        self._ns_running_app = app
-                        break
+                self._ns_running_app = (
+                    NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+                )
         return self._ns_running_app
 
     def __str__(self) -> str:

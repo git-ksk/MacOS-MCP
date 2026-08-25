@@ -88,6 +88,7 @@ from ApplicationServices import (
     kAXCopyMultipleAttributeOptionStopOnError,
 )
 from Cocoa import NSWorkspace
+from CoreFoundation import CFRunLoopRunInMode, kCFRunLoopDefaultMode
 
 if TYPE_CHECKING:
     from macos_mcp.ax.controls import ApplicationControl, Control, WindowControl
@@ -1700,13 +1701,33 @@ def GetForegroundWindowPID() -> Optional[int]:
     return None
 
 
-def _GetRunningApplicationsRaw() -> list[Any]:
+# NSWorkspace keeps its view of the running applications current by observing
+# notifications delivered on a run loop. This process never runs one, so the
+# list freezes at whatever was running the first time it was read: an
+# application launched afterwards stays invisible, its ApplicationControl
+# reports a bundle id of None, and the snapshot skips it entirely. Measured
+# without this, the list never caught up at all -- still stale eight seconds
+# after a launch.
+def _DrainRunLoop() -> None:
+    """Let the run loop deliver whatever it has queued, without blocking.
+
+    One non-blocking pass is enough even when several applications launched
+    at once, and it costs ~0.002ms. The call reports no handled sources
+    (CFRunLoopRunInMode returns timed-out) yet the notifications still land,
+    so there is nothing to loop on.
+    """
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, True)
+
+
+def GetRunningApplicationsRaw() -> list[Any]:
     """Get all running applications from NSWorkspace (raw NSRunningApplication objects)."""
+    _DrainRunLoop()
     return list(NSWorkspace.sharedWorkspace().runningApplications())
 
 
 def _GetFrontmostApplicationRaw() -> Any:
     """Get the frontmost application from NSWorkspace (raw NSRunningApplication)."""
+    _DrainRunLoop()
     return NSWorkspace.sharedWorkspace().frontmostApplication()
 
 
@@ -1716,8 +1737,7 @@ def ActivateApplication(pid: int) -> bool:
     """
     from Cocoa import NSApplicationActivateIgnoringOtherApps
 
-    workspace = NSWorkspace.sharedWorkspace()
-    for app in workspace.runningApplications():
+    for app in GetRunningApplicationsRaw():
         if app.processIdentifier() == pid:
             return app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
     return False
@@ -2645,7 +2665,7 @@ def GetRunningApplications(
     """
     from .controls import ApplicationControl
 
-    raw_apps = NSWorkspace.sharedWorkspace().runningApplications()
+    raw_apps = GetRunningApplicationsRaw()
     apps = [ApplicationControl(pid=a.processIdentifier()) for a in raw_apps]
 
     if policy is not None:
@@ -2672,13 +2692,14 @@ def GetRunningApplicationByName(name: str) -> Optional["ApplicationControl"]:
 
     name_lower = name.strip().lower()
     # First pass: match against NSWorkspace localizedName
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
+    running = GetRunningApplicationsRaw()
+    for app in running:
         local_name = app.localizedName()
         if local_name and str(local_name).lower() == name_lower:
             return ApplicationControl(pid=app.processIdentifier())
     # Second pass: match against AX-reported name (ApplicationControl.Name),
     # which may differ (e.g. "Chrome" vs "Google Chrome")
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
+    for app in running:
         ctrl = ApplicationControl(pid=app.processIdentifier())
         ax_name = ctrl.Name
         if ax_name and str(ax_name).lower() == name_lower:
@@ -2698,7 +2719,7 @@ def GetRunningApplicationByBundleId(bundle_id: str) -> Optional["ApplicationCont
     """
     from .controls import ApplicationControl
 
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
+    for app in GetRunningApplicationsRaw():
         bid = app.bundleIdentifier()
         if bid and str(bid) == bundle_id:
             return ApplicationControl(pid=app.processIdentifier())

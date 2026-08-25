@@ -20,7 +20,6 @@ from macos_mcp.desktop.config import BROWSER_BUNDLE_IDS, SYSTEM_UI_BUNDLE_IDS
 from macos_mcp.desktop.views import Window
 import macos_mcp.ax as ax
 import logging
-from AppKit import NSWorkspace
 import objc
 
 logger = logging.getLogger(__name__)
@@ -68,7 +67,7 @@ class Tree:
         try:
             running = [
                 app
-                for app in NSWorkspace.sharedWorkspace().runningApplications()
+                for app in ax.GetRunningApplicationsRaw()
                 # Includes accessory apps (policy 1), which is what most
                 # menu-bar-only tools are.
                 if app.activationPolicy() in (0, 1) and app.bundleIdentifier()
