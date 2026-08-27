@@ -35,11 +35,13 @@ def test_streamable_http_runs_stateless(mocker, tmp_path):
 
     assert kwargs["transport"] == "streamable-http"
     assert kwargs["stateless_http"] is True
+    assert kwargs["uvicorn_config"]["timeout_graceful_shutdown"] == 2
 
 
-def test_sse_keeps_stateful_transport_default(mocker, tmp_path):
-    """SSE must retain its existing stateful transport behavior."""
+def test_sse_keeps_stateful_transport(mocker, tmp_path):
+    """SSE must stay stateful while allowing bounded graceful shutdown."""
     kwargs = _run_serve(mocker, tmp_path, "sse")
 
     assert kwargs["transport"] == "sse"
     assert kwargs["stateless_http"] is False
+    assert kwargs["uvicorn_config"]["timeout_graceful_shutdown"] == 2

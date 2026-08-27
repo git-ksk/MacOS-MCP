@@ -724,7 +724,10 @@ def serve(ctx, transport, host, port, debug, config, auth_key, allow_insecure_re
                 if previous_sigint_handler is not None:
                     signal.signal(signal.SIGINT, previous_sigint_handler)
         case "sse" | "streamable-http":
-            uvicorn_config: dict = {}
+            # FastMCP 2.14.4 sets Uvicorn's graceful-shutdown timeout to zero,
+            # which emits a timeout error even when no requests are active.
+            # Use FastMCP 3.x's two-second default to keep shutdown bounded and quiet.
+            uvicorn_config: dict = {"timeout_graceful_shutdown": 2}
             if ssl_certfile and ssl_keyfile:
                 uvicorn_config["ssl_certfile"] = ssl_certfile
                 uvicorn_config["ssl_keyfile"] = ssl_keyfile
